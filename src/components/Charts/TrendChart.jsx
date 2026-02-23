@@ -4,7 +4,7 @@ import { useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { prepareTrendData } from '@/lib/chartUtils';
 
-const Plot = dynamic(() => import('react-plotly.js'), { ssr: false });
+const Plot = dynamic(() => import('./PlotlyWrapper'), { ssr: false });
 
 export default function TrendChart({ fullData, filteredData }) {
   const trendData = useMemo(

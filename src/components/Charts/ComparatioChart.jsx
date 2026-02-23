@@ -4,7 +4,7 @@ import { useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { prepareComparatioData } from '@/lib/chartUtils';
 
-const Plot = dynamic(() => import('react-plotly.js'), { ssr: false });
+const Plot = dynamic(() => import('./PlotlyWrapper'), { ssr: false });
 
 export default function ComparatioChart({ data }) {
   const chartConfig = useMemo(() => prepareComparatioData(data), [data]);
