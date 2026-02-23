@@ -1,0 +1,29 @@
+{
+  "name": "digitalni-kulate-stoly",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "generate-data": "node src/data/generateDummy.js"
+  },
+  "dependencies": {
+    "next": "^14.2.0",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "ag-grid-react": "^31.0.0",
+    "ag-grid-community": "^31.0.0",
+    "ag-grid-enterprise": "^31.0.0",
+    "react-plotly.js": "^2.6.0",
+    "plotly.js": "^2.35.0",
+    "xlsx": "^0.18.5",
+    "file-saver": "^2.0.5",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.0",
+    "postcss": "^8.4.0",
+    "autoprefixer": "^10.4.0"
+  }
+}

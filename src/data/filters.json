@@ -1,0 +1,17 @@
+[
+  {
+    "FILTER_NAME": "Retail banking",
+    "FILTER_CREATOR": "alena.horak@csas.cz",
+    "FILTERED_VALUES": "{\"L2_ORGANIZATION_UNIT_NAME_CZ\":{\"filterType\":\"set\",\"values\":[\"Retail banking\"]}}"
+  },
+  {
+    "FILTER_NAME": "IT & Digitalizace",
+    "FILTER_CREATOR": "alena.horak@csas.cz",
+    "FILTERED_VALUES": "{\"L2_ORGANIZATION_UNIT_NAME_CZ\":{\"filterType\":\"set\",\"values\":[\"IT & Digitalizace\"]}}"
+  },
+  {
+    "FILTER_NAME": "Všechny divize",
+    "FILTER_CREATOR": "alena.horak@csas.cz",
+    "FILTERED_VALUES": "{\"L2_ORGANIZATION_UNIT_NAME_CZ\":{\"filterType\":\"set\",\"values\":[\"Retail banking\",\"Korporátní bankovnictví\",\"Řízení rizik\",\"IT & Digitalizace\"]}}"
+  }
+]
