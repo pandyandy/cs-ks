@@ -1,8 +1,10 @@
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '..', '.env.local') });
+
 const express = require('express');
 const { executeQuery, mapJsonToSnowflakeType } = require('./snowflake');
 const { v4: uuidv4 } = require('uuid');
 const fs = require('fs');
-const path = require('path');
 
 const app = express();
 app.use(express.json({ limit: '50mb' }));
@@ -21,7 +23,7 @@ const DATA_COLUMNS = [
   'JOB_ENTRY_DATE', 'TM_DATE', 'L2_ORGANIZATION_UNIT_NAME_CZ',
   'L3_ORGANIZATION_UNIT_NAME_CZ', 'L4_ORGANIZATION_UNIT_NAME_CZ', 'TEAM_CODE',
   'L2_HEAD_OF_UNIT_FULL_NAME', 'L3_HEAD_OF_UNIT_FULL_NAME',
-  'L4_HEAD_OF_UNIT_FULL_NAME', 'MES_DPP_STATUS', 'COMPARATIO',
+  'L4_HEAD_OF_UNIT_FULL_NAME', 'MES_DPP_STATUS',
 ];
 
 const PK_COLUMNS = ['USER_ID', 'YEAR', 'EVALUATION'];
@@ -236,10 +238,27 @@ app.post('/api/filters', async (req, res) => {
 
 // Health check
 app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok' });
+  res.json({
+    status: 'ok',
+    snowflake: {
+      account: process.env.SNOWFLAKE_ACCOUNT ? 'set' : 'missing',
+      user: process.env.SNOWFLAKE_USER ? 'set' : 'missing',
+      privateKey: process.env.SNOWFLAKE_PRIVATE_KEY ? 'set' : 'missing',
+      warehouse: process.env.SNOWFLAKE_WAREHOUSE ? 'set' : 'missing',
+      database: process.env.SNOWFLAKE_DATABASE ? 'set' : 'missing',
+      schema: process.env.SNOWFLAKE_SCHEMA ? 'set' : 'missing',
+      sourceTable: process.env.WORKSPACE_SOURCE_TABLE_ID || 'missing',
+      filterTable: process.env.WORKSPACE_FILTER_TABLE_ID || 'missing',
+    },
+  });
 });
 
 const PORT = process.env.API_PORT || 3001;
 app.listen(PORT, '127.0.0.1', () => {
-  console.log(`API server running on http://127.0.0.1:${PORT}`);
+  console.log(`[API] Server running on http://127.0.0.1:${PORT}`);
+  console.log(`[API] SNOWFLAKE_ACCOUNT=${process.env.SNOWFLAKE_ACCOUNT || '(not set)'}`);
+  console.log(`[API] SNOWFLAKE_USER=${process.env.SNOWFLAKE_USER || '(not set)'}`);
+  console.log(`[API] SNOWFLAKE_PRIVATE_KEY=${process.env.SNOWFLAKE_PRIVATE_KEY ? '(set, ' + process.env.SNOWFLAKE_PRIVATE_KEY.length + ' chars)' : '(not set)'}`);
+  console.log(`[API] WORKSPACE_SOURCE_TABLE_ID=${process.env.WORKSPACE_SOURCE_TABLE_ID || '(not set)'}`);
+  console.log(`[API] WORKSPACE_FILTER_TABLE_ID=${process.env.WORKSPACE_FILTER_TABLE_ID || '(not set)'}`);
 });

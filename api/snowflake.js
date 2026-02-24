@@ -1,6 +1,6 @@
 const snowflake = require('snowflake-sdk');
-const crypto = require('crypto');
-const fs = require('fs');
+
+snowflake.configure({ logLevel: 'OFF' });
 
 let connection = null;
 
@@ -8,21 +8,25 @@ function getPrivateKey() {
   const raw = process.env.SNOWFLAKE_PRIVATE_KEY;
   if (!raw) throw new Error('SNOWFLAKE_PRIVATE_KEY is not set');
 
-  let pem = raw;
+  let pem = raw.replace(/\\n/g, '\n').trim();
+
   if (!pem.includes('-----BEGIN')) {
-    pem = `-----BEGIN PRIVATE KEY-----\n${pem}\n-----END PRIVATE KEY-----`;
+    const base64 = pem.replace(/\s+/g, '');
+    const lines = base64.match(/.{1,64}/g) || [base64];
+    pem = `-----BEGIN PRIVATE KEY-----\n${lines.join('\n')}\n-----END PRIVATE KEY-----`;
   }
 
-  const key = crypto.createPrivateKey({
-    key: pem,
-    format: 'pem',
-  });
-
-  return key.export({ type: 'pkcs8', format: 'der' });
+  return pem;
 }
 
-function getConnectionConfig() {
-  return {
+async function getConnection() {
+  if (connection && connection.isUp()) {
+    return connection;
+  }
+
+  connection = null;
+
+  const config = {
     account: process.env.SNOWFLAKE_ACCOUNT,
     username: process.env.SNOWFLAKE_USER,
     authenticator: 'SNOWFLAKE_JWT',
@@ -31,41 +35,34 @@ function getConnectionConfig() {
     database: process.env.SNOWFLAKE_DATABASE,
     schema: process.env.SNOWFLAKE_SCHEMA,
   };
+
+  console.log(`[Snowflake] Connecting as ${config.username} to ${config.account}`);
+
+  const conn = snowflake.createConnection(config);
+  await conn.connectAsync();
+  console.log('[Snowflake] Connected successfully');
+  connection = conn;
+  return conn;
 }
 
-function getConnection() {
-  return new Promise((resolve, reject) => {
-    if (connection && connection.isUp()) {
-      resolve(connection);
-      return;
-    }
-
-    const conn = snowflake.createConnection(getConnectionConfig());
-    conn.connect((err, c) => {
-      if (err) {
-        reject(new Error(`Snowflake connection failed: ${err.message}`));
-        return;
-      }
-      connection = c;
-      resolve(c);
-    });
-  });
-}
-
-async function executeQuery(query, binds = []) {
+async function executeQuery(query, binds) {
   const conn = await getConnection();
   return new Promise((resolve, reject) => {
-    conn.execute({
-      sqlText: query,
-      binds,
-      complete: (err, _stmt, rows) => {
-        if (err) {
-          reject(new Error(`Query failed: ${err.message}`));
-          return;
-        }
-        resolve(rows || []);
-      },
-    });
+    const opts = { sqlText: query };
+    if (binds && binds.length > 0) {
+      opts.binds = binds;
+    }
+    opts.complete = (err, _stmt, rows) => {
+      if (err) {
+        console.error('[Snowflake] Query error:', err.message);
+        connection = null;
+        reject(new Error(`Query failed: ${err.message}`));
+        return;
+      }
+      resolve(rows || []);
+    };
+    console.log(`[Snowflake] Executing: ${query.substring(0, 80)}...`);
+    conn.execute(opts);
   });
 }
 

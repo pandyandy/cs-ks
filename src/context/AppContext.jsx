@@ -101,9 +101,15 @@ function processRow(row) {
   };
 }
 
+function fetchWithTimeout(url, options = {}, timeoutMs = 30000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timer));
+}
+
 async function apiAvailable() {
   try {
-    const res = await fetch('/api/health');
+    const res = await fetchWithTimeout('/api/health', {}, 5000);
     return res.ok;
   } catch {
     return false;
@@ -135,7 +141,7 @@ export function AppProvider({ children }) {
       let data;
 
       if (hasApi) {
-        const res = await fetch('/api/data');
+        const res = await fetchWithTimeout('/api/data', {}, 60000);
         if (!res.ok) throw new Error('Failed to load data from API');
         ({ data } = await res.json());
       } else {
@@ -168,7 +174,7 @@ export function AppProvider({ children }) {
       let data;
 
       if (hasApi) {
-        const res = await fetch('/api/data');
+        const res = await fetchWithTimeout('/api/data', {}, 60000);
         if (!res.ok) throw new Error('Failed to reload data');
         ({ data } = await res.json());
       } else {
@@ -191,7 +197,7 @@ export function AppProvider({ children }) {
       const hasApi = await apiAvailable();
 
       if (hasApi) {
-        const res = await fetch(`/api/filters?email=${encodeURIComponent(email)}`);
+        const res = await fetchWithTimeout(`/api/filters?email=${encodeURIComponent(email)}`, {}, 30000);
         if (!res.ok) throw new Error('Failed to load filters');
         const { filters, filterNames } = await res.json();
         dispatch({ type: 'SET_FILTERS', payload: { filters, filterNames } });
@@ -221,11 +227,11 @@ export function AppProvider({ children }) {
       const hasApi = await apiAvailable();
 
       if (hasApi) {
-        const res = await fetch('/api/filters', {
+        const res = await fetchWithTimeout('/api/filters', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ userEmail: email, filterName, filterModel }),
-        });
+        }, 30000);
         if (!res.ok) throw new Error('Failed to save filter');
         await loadFilters(email);
         return true;
@@ -258,11 +264,11 @@ export function AppProvider({ children }) {
       const hasApi = await apiAvailable();
 
       if (hasApi) {
-        const res = await fetch('/api/data/save', {
+        const res = await fetchWithTimeout('/api/data/save', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ changedRows, originalData, userEmail }),
-        });
+        }, 120000);
         if (!res.ok) {
           const err = await res.json();
           throw new Error(err.error || 'Failed to save');
