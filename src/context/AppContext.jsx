@@ -101,34 +101,28 @@ function processRow(row) {
   };
 }
 
-function getStoredEmployees() {
+async function apiAvailable() {
   try {
-    const stored = localStorage.getItem(STORAGE_KEYS.EMPLOYEES);
+    const res = await fetch('/api/health');
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+function getStored(key) {
+  try {
+    const stored = localStorage.getItem(key);
     return stored ? JSON.parse(stored) : null;
   } catch {
     return null;
   }
 }
 
-function storeEmployees(data) {
+function setStored(key, data) {
   try {
-    localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(data));
-  } catch { /* storage full — silently ignore */ }
-}
-
-function getStoredFilters() {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEYS.FILTERS);
-    return stored ? JSON.parse(stored) : null;
-  } catch {
-    return null;
-  }
-}
-
-function storeFilters(data) {
-  try {
-    localStorage.setItem(STORAGE_KEYS.FILTERS, JSON.stringify(data));
-  } catch { /* storage full — silently ignore */ }
+    localStorage.setItem(key, JSON.stringify(data));
+  } catch { /* storage full */ }
 }
 
 export function AppProvider({ children }) {
@@ -137,20 +131,28 @@ export function AppProvider({ children }) {
   const loadData = useCallback(async () => {
     dispatch({ type: 'SET_LOADING', payload: true });
     try {
-      const stored = getStoredEmployees();
-      let rows;
+      const hasApi = await apiAvailable();
+      let data;
 
-      if (stored && stored.length > 0) {
-        rows = stored;
+      if (hasApi) {
+        const res = await fetch('/api/data');
+        if (!res.ok) throw new Error('Failed to load data from API');
+        ({ data } = await res.json());
       } else {
-        const res = await fetch('/data/employees.json');
-        if (!res.ok) throw new Error('Failed to load data');
-        rows = await res.json();
-        storeEmployees(rows);
+        const stored = getStored(STORAGE_KEYS.EMPLOYEES);
+        let rows;
+        if (stored && stored.length > 0) {
+          rows = stored;
+        } else {
+          const res = await fetch('/data/employees.json');
+          if (!res.ok) throw new Error('Failed to load data');
+          rows = await res.json();
+          setStored(STORAGE_KEYS.EMPLOYEES, rows);
+        }
+        data = rows.map(processRow);
+        data.sort((a, b) => (a.FULL_NAME || '').localeCompare(b.FULL_NAME || ''));
       }
 
-      const data = rows.map(processRow);
-      data.sort((a, b) => (a.FULL_NAME || '').localeCompare(b.FULL_NAME || ''));
       dispatch({ type: 'SET_DATA', payload: data });
       return data;
     } catch (err) {
@@ -162,10 +164,20 @@ export function AppProvider({ children }) {
   const reloadData = useCallback(async () => {
     dispatch({ type: 'SET_LOADING', payload: true });
     try {
-      const stored = getStoredEmployees();
-      const rows = stored && stored.length > 0 ? stored : [];
-      const data = rows.map(processRow);
-      data.sort((a, b) => (a.FULL_NAME || '').localeCompare(b.FULL_NAME || ''));
+      const hasApi = await apiAvailable();
+      let data;
+
+      if (hasApi) {
+        const res = await fetch('/api/data');
+        if (!res.ok) throw new Error('Failed to reload data');
+        ({ data } = await res.json());
+      } else {
+        const stored = getStored(STORAGE_KEYS.EMPLOYEES);
+        const rows = stored && stored.length > 0 ? stored : [];
+        data = rows.map(processRow);
+        data.sort((a, b) => (a.FULL_NAME || '').localeCompare(b.FULL_NAME || ''));
+      }
+
       dispatch({ type: 'RELOAD_DATA', payload: data });
       return data;
     } catch (err) {
@@ -176,13 +188,22 @@ export function AppProvider({ children }) {
 
   const loadFilters = useCallback(async (email) => {
     try {
-      let allFilters = getStoredFilters();
+      const hasApi = await apiAvailable();
 
+      if (hasApi) {
+        const res = await fetch(`/api/filters?email=${encodeURIComponent(email)}`);
+        if (!res.ok) throw new Error('Failed to load filters');
+        const { filters, filterNames } = await res.json();
+        dispatch({ type: 'SET_FILTERS', payload: { filters, filterNames } });
+        return { filters, filterNames };
+      }
+
+      let allFilters = getStored(STORAGE_KEYS.FILTERS);
       if (!allFilters) {
         const res = await fetch('/data/filters.json');
         if (!res.ok) throw new Error('Failed to load filters');
         allFilters = await res.json();
-        storeFilters(allFilters);
+        setStored(STORAGE_KEYS.FILTERS, allFilters);
       }
 
       const userFilters = allFilters.filter((f) => f.FILTER_CREATOR === email);
@@ -197,25 +218,34 @@ export function AppProvider({ children }) {
 
   const saveFilter = useCallback(async (email, filterName, filterModel) => {
     try {
-      let allFilters = getStoredFilters() || [];
+      const hasApi = await apiAvailable();
 
+      if (hasApi) {
+        const res = await fetch('/api/filters', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userEmail: email, filterName, filterModel }),
+        });
+        if (!res.ok) throw new Error('Failed to save filter');
+        await loadFilters(email);
+        return true;
+      }
+
+      let allFilters = getStored(STORAGE_KEYS.FILTERS) || [];
       const existingIdx = allFilters.findIndex(
         (f) => f.FILTER_NAME === filterName && f.FILTER_CREATOR === email
       );
-
       const filterRecord = {
         FILTER_NAME: filterName,
         FILTER_CREATOR: email,
         FILTERED_VALUES: JSON.stringify(filterModel || {}),
       };
-
       if (existingIdx >= 0) {
         allFilters[existingIdx] = filterRecord;
       } else {
         allFilters.push(filterRecord);
       }
-
-      storeFilters(allFilters);
+      setStored(STORAGE_KEYS.FILTERS, allFilters);
       await loadFilters(email);
       return true;
     } catch {
@@ -223,8 +253,25 @@ export function AppProvider({ children }) {
     }
   }, [loadFilters]);
 
-  const saveChanges = useCallback(async (changedRows, _originalData, userEmail) => {
+  const saveChanges = useCallback(async (changedRows, originalData, userEmail) => {
     try {
+      const hasApi = await apiAvailable();
+
+      if (hasApi) {
+        const res = await fetch('/api/data/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ changedRows, originalData, userEmail }),
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error || 'Failed to save');
+        }
+        dispatch({ type: 'CLEAR_CHANGES' });
+        await reloadData();
+        return true;
+      }
+
       const PK_COLUMNS = ['USER_ID', 'YEAR', 'EVALUATION'];
       const COLUMNS_TO_UPDATE = [
         'HODNOTY', 'VYKON', 'POTENCIAL', 'POZNAMKY', 'NASTUPCE',
@@ -232,7 +279,7 @@ export function AppProvider({ children }) {
         'LOCKED_TIMESTAMP', 'HIST_DATA_MODIFIED_BY', 'HIST_DATA_MODIFIED_WHEN',
       ];
 
-      const stored = getStoredEmployees();
+      const stored = getStored(STORAGE_KEYS.EMPLOYEES);
       if (!stored) throw new Error('No data in storage');
 
       const now = new Date().toISOString().replace('T', ' ').slice(0, 23);
@@ -246,18 +293,15 @@ export function AppProvider({ children }) {
         const key = PK_COLUMNS.map((c) => changed[c]).join('_');
         const idx = indexMap.get(key);
         if (idx == null) continue;
-
         const row = stored[idx];
         for (const col of COLUMNS_TO_UPDATE) {
           if (changed[col] !== undefined) row[col] = changed[col];
         }
         row.HIST_DATA_MODIFIED_BY = userEmail;
         row.HIST_DATA_MODIFIED_WHEN = now;
-
         for (const col of ['IS_LOCKED', 'HODNOTY', 'VYKON']) {
           row[col] = parseInt(row[col], 10) || 0;
         }
-
         if (
           row.IS_LOCKED === 1 &&
           (!row.LOCKED_TIMESTAMP ||
@@ -268,7 +312,7 @@ export function AppProvider({ children }) {
         }
       }
 
-      storeEmployees(stored);
+      setStored(STORAGE_KEYS.EMPLOYEES, stored);
       dispatch({ type: 'CLEAR_CHANGES' });
 
       const data = stored.map(processRow);
@@ -279,7 +323,7 @@ export function AppProvider({ children }) {
       dispatch({ type: 'SET_ERROR', payload: err.message });
       return false;
     }
-  }, []);
+  }, [reloadData]);
 
   const value = {
     state,
