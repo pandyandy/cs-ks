@@ -1,0 +1,4 @@
+FILTER_NAME,FILTER_CREATOR,FILTERED_VALUES
+Retail tým,admin@csas.cz,"{""L2_ORGANIZATION_UNIT_NAME_CZ"":[""Retail banking""]}"
+IT oddělení,admin@csas.cz,"{""L2_ORGANIZATION_UNIT_NAME_CZ"":[""IT & Digitalizace""]}"
+Risk management,admin@csas.cz,"{""L2_ORGANIZATION_UNIT_NAME_CZ"":[""Řízení rizik""]}"

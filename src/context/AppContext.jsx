@@ -3,6 +3,7 @@
 import { createContext, useContext, useReducer, useCallback } from 'react';
 
 const AppContext = createContext(null);
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
 
 const STORAGE_KEYS = {
   EMPLOYEES: 'cs-ks-employees',
@@ -109,7 +110,7 @@ function fetchWithTimeout(url, options = {}, timeoutMs = 30000) {
 
 async function apiAvailable() {
   try {
-    const res = await fetchWithTimeout('/api/health', {}, 5000);
+    const res = await fetchWithTimeout(`${API_BASE}/api/health`, {}, 5000);
     return res.ok;
   } catch {
     return false;
@@ -141,7 +142,7 @@ export function AppProvider({ children }) {
       let data;
 
       if (hasApi) {
-        const res = await fetchWithTimeout('/api/data', {}, 60000);
+        const res = await fetchWithTimeout(`${API_BASE}/api/data`, {}, 60000);
         if (!res.ok) throw new Error('Failed to load data from API');
         ({ data } = await res.json());
       } else {
@@ -174,7 +175,7 @@ export function AppProvider({ children }) {
       let data;
 
       if (hasApi) {
-        const res = await fetchWithTimeout('/api/data', {}, 60000);
+        const res = await fetchWithTimeout(`${API_BASE}/api/data`, {}, 60000);
         if (!res.ok) throw new Error('Failed to reload data');
         ({ data } = await res.json());
       } else {
@@ -197,7 +198,11 @@ export function AppProvider({ children }) {
       const hasApi = await apiAvailable();
 
       if (hasApi) {
-        const res = await fetchWithTimeout(`/api/filters?email=${encodeURIComponent(email)}`, {}, 30000);
+        const res = await fetchWithTimeout(
+          `${API_BASE}/api/filters?email=${encodeURIComponent(email)}`,
+          {},
+          30000
+        );
         if (!res.ok) throw new Error('Failed to load filters');
         const { filters, filterNames } = await res.json();
         dispatch({ type: 'SET_FILTERS', payload: { filters, filterNames } });
@@ -227,7 +232,7 @@ export function AppProvider({ children }) {
       const hasApi = await apiAvailable();
 
       if (hasApi) {
-        const res = await fetchWithTimeout('/api/filters', {
+        const res = await fetchWithTimeout(`${API_BASE}/api/filters`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ userEmail: email, filterName, filterModel }),
@@ -264,7 +269,7 @@ export function AppProvider({ children }) {
       const hasApi = await apiAvailable();
 
       if (hasApi) {
-        const res = await fetchWithTimeout('/api/data/save', {
+        const res = await fetchWithTimeout(`${API_BASE}/api/data/save`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ changedRows, originalData, userEmail }),
