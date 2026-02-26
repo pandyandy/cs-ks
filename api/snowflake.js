@@ -2,8 +2,6 @@ const snowflake = require('snowflake-sdk');
 
 snowflake.configure({ logLevel: 'OFF' });
 
-let connection = null;
-
 function getPrivateKey() {
   const raw = process.env.SNOWFLAKE_PRIVATE_KEY;
   if (!raw) throw new Error('SNOWFLAKE_PRIVATE_KEY is not set');
@@ -20,12 +18,6 @@ function getPrivateKey() {
 }
 
 async function getConnection() {
-  if (connection && connection.isUp()) {
-    return connection;
-  }
-
-  connection = null;
-
   const config = {
     account: process.env.SNOWFLAKE_ACCOUNT,
     username: process.env.SNOWFLAKE_USER,
@@ -41,7 +33,6 @@ async function getConnection() {
   const conn = snowflake.createConnection(config);
   await conn.connectAsync();
   console.log('[Snowflake] Connected successfully');
-  connection = conn;
   return conn;
 }
 
@@ -55,10 +46,11 @@ async function executeQuery(query, binds) {
     opts.complete = (err, _stmt, rows) => {
       if (err) {
         console.error('[Snowflake] Query error:', err.message);
-        connection = null;
+        conn.destroy(() => {});
         reject(new Error(`Query failed: ${err.message}`));
         return;
       }
+      conn.destroy(() => {});
       resolve(rows || []);
     };
     console.log(`[Snowflake] Executing: ${query.substring(0, 80)}...`);
