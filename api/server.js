@@ -10,7 +10,7 @@ if (fs.existsSync(envPath)) {
 }
 
 const express = require('express');
-const { executeQuery, mapJsonToSnowflakeType } = require('./snowflake');
+const { executeQuery, connect, mapJsonToSnowflakeType } = require('./snowflake');
 const { v4: uuidv4 } = require('uuid');
 
 const app = express();
@@ -269,5 +269,9 @@ app.listen(PORT, '127.0.0.1', () => {
   console.log(`[API] SNOWFLAKE_PRIVATE_KEY=${process.env.SNOWFLAKE_PRIVATE_KEY ? '(set, ' + process.env.SNOWFLAKE_PRIVATE_KEY.length + ' chars)' : '(not set)'}`);
   console.log(`[API] WORKSPACE_SOURCE_TABLE_ID=${process.env.WORKSPACE_SOURCE_TABLE_ID || '(not set)'}`);
   console.log(`[API] WORKSPACE_FILTER_TABLE_ID=${process.env.WORKSPACE_FILTER_TABLE_ID || '(not set)'}`);
-  console.log('[API] Connection mode: fresh connection per query (serial queue)');
+
+  // Establish the persistent Snowflake connection once at startup
+  connect()
+    .then(() => console.log('[API] Snowflake session ready'))
+    .catch((err) => console.error('[API] Snowflake initial connect failed:', err.message));
 });

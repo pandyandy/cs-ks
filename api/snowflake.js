@@ -1,16 +1,14 @@
 const snowflake = require('snowflake-sdk');
 
-// Disable HTTP keep-alive: the SDK's agent caches TCP connections globally, and in
-// containerized environments (Keboola) those connections get silently dropped by NAT/proxies.
-// Reusing a dead TCP connection causes Snowflake to return 401/SESSION_TOKEN_INVALID,
-// which the SDK surfaces as error 407002 "terminated connection".
 snowflake.configure({
   logLevel: process.env.SNOWFLAKE_LOG_LEVEL || 'OFF',
   keepAlive: false,
 });
 
-// Serial queue — ensures only one query (and one connection) runs at a time.
-// This prevents parallel connections which caused "terminated connection" loops in Keboola.
+// Single persistent connection — initialized once at startup and reused.
+// A keepalive ping runs every 3 minutes to prevent the session from expiring.
+let conn = null;
+let keepAliveTimer = null;
 let queryQueue = Promise.resolve();
 
 function getPrivateKey() {
@@ -28,7 +26,16 @@ function getPrivateKey() {
   return pem;
 }
 
-async function createFreshConnection() {
+async function connect() {
+  if (keepAliveTimer) {
+    clearInterval(keepAliveTimer);
+    keepAliveTimer = null;
+  }
+  if (conn) {
+    conn.destroy(() => {});
+    conn = null;
+  }
+
   const config = {
     account: process.env.SNOWFLAKE_ACCOUNT,
     username: process.env.SNOWFLAKE_USER,
@@ -40,45 +47,63 @@ async function createFreshConnection() {
   };
 
   console.log(`[Snowflake] Connecting as ${config.username} to ${config.account}`);
-
-  const conn = snowflake.createConnection(config);
-  await conn.connectAsync();
+  const c = snowflake.createConnection(config);
+  await c.connectAsync();
+  conn = c;
   console.log('[Snowflake] Connected successfully');
-  return conn;
+
+  // Keepalive: ping every 3 minutes so the session doesn't go idle
+  keepAliveTimer = setInterval(() => {
+    if (!conn) return;
+    conn.execute({
+      sqlText: 'SELECT 1',
+      complete: (err) => {
+        if (err) {
+          console.warn('[Snowflake] Keepalive ping failed — will reconnect on next query:', err.message);
+          if (keepAliveTimer) clearInterval(keepAliveTimer);
+          keepAliveTimer = null;
+          conn = null;
+        } else {
+          console.log('[Snowflake] Keepalive OK');
+        }
+      },
+    });
+  }, 3 * 60 * 1000);
 }
 
 function enqueueQuery(run) {
   const p = queryQueue.then(run, run);
-  // prevent a rejected promise from blocking the queue forever
   queryQueue = p.catch(() => {});
   return p;
 }
 
 async function executeQuery(query, binds) {
   return enqueueQuery(async () => {
-    // Fresh connection per query — avoids stale sessions from idle connections
-    // (Keboola's NAT drops idle TCP entries after ~30s, causing "terminated connection")
-    const conn = await createFreshConnection();
-    try {
-      return await new Promise((resolve, reject) => {
-        const opts = { sqlText: query };
-        if (binds && binds.length > 0) {
-          opts.binds = binds;
-        }
-        opts.complete = (err, _stmt, rows) => {
-          if (err) {
-            console.error('[Snowflake] Query error:', err.message, '| code:', err.code, '| sqlState:', err.sqlState);
-            reject(new Error(`Query failed: ${err.message}`));
-            return;
-          }
-          resolve(rows || []);
-        };
-        console.log(`[Snowflake] Executing: ${query.substring(0, 80)}...`);
-        conn.execute(opts);
-      });
-    } finally {
-      conn.destroy(() => {});
+    // Reconnect if the session was dropped
+    if (!conn) {
+      await connect();
     }
+
+    return new Promise((resolve, reject) => {
+      const opts = { sqlText: query };
+      if (binds && binds.length > 0) {
+        opts.binds = binds;
+      }
+      opts.complete = (err, _stmt, rows) => {
+        if (err) {
+          console.error('[Snowflake] Query error:', err.message, '| code:', err.code, '| sqlState:', err.sqlState);
+          // Mark connection as dead so the next query reconnects
+          if (keepAliveTimer) clearInterval(keepAliveTimer);
+          keepAliveTimer = null;
+          conn = null;
+          reject(new Error(`Query failed: ${err.message}`));
+          return;
+        }
+        resolve(rows || []);
+      };
+      console.log(`[Snowflake] Executing: ${query.substring(0, 80)}...`);
+      conn.execute(opts);
+    });
   });
 }
 
@@ -89,4 +114,4 @@ function mapJsonToSnowflakeType(jsonType) {
   throw new Error(`Unsupported JSON type: ${jsonType}`);
 }
 
-module.exports = { executeQuery, mapJsonToSnowflakeType };
+module.exports = { executeQuery, connect, mapJsonToSnowflakeType };
