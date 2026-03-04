@@ -1,7 +1,13 @@
 const snowflake = require('snowflake-sdk');
 
-// Allow overriding log level via env var for debugging (e.g. SNOWFLAKE_LOG_LEVEL=DEBUG)
-snowflake.configure({ logLevel: process.env.SNOWFLAKE_LOG_LEVEL || 'OFF' });
+// Disable HTTP keep-alive: the SDK's agent caches TCP connections globally, and in
+// containerized environments (Keboola) those connections get silently dropped by NAT/proxies.
+// Reusing a dead TCP connection causes Snowflake to return 401/SESSION_TOKEN_INVALID,
+// which the SDK surfaces as error 407002 "terminated connection".
+snowflake.configure({
+  logLevel: process.env.SNOWFLAKE_LOG_LEVEL || 'OFF',
+  keepAlive: false,
+});
 
 // Serial queue — ensures only one query (and one connection) runs at a time.
 // This prevents parallel connections which caused "terminated connection" loops in Keboola.
