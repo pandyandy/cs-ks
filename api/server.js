@@ -269,9 +269,5 @@ app.listen(PORT, '127.0.0.1', () => {
   console.log(`[API] SNOWFLAKE_PRIVATE_KEY=${process.env.SNOWFLAKE_PRIVATE_KEY ? '(set, ' + process.env.SNOWFLAKE_PRIVATE_KEY.length + ' chars)' : '(not set)'}`);
   console.log(`[API] WORKSPACE_SOURCE_TABLE_ID=${process.env.WORKSPACE_SOURCE_TABLE_ID || '(not set)'}`);
   console.log(`[API] WORKSPACE_FILTER_TABLE_ID=${process.env.WORKSPACE_FILTER_TABLE_ID || '(not set)'}`);
-
-  // Verify Snowflake connectivity at startup so misconfiguration is caught early
-  executeQuery('SELECT 1 AS ping')
-    .then(() => console.log('[API] Snowflake connectivity test: OK'))
-    .catch((err) => console.error('[API] Snowflake connectivity test FAILED:', err.message));
+  console.log('[API] Connection mode: fresh connection per query (serial queue)');
 });
