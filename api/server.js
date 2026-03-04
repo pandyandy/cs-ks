@@ -1,10 +1,17 @@
 const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '..', '.env.local') });
+const fs = require('fs');
+
+// Load .env.local only when it exists (local dev). In Keboola, configuration
+// comes from environment variables/secrets instead.
+const envPath = path.join(__dirname, '..', '.env.local');
+if (fs.existsSync(envPath)) {
+  // eslint-disable-next-line global-require
+  require('dotenv').config({ path: envPath });
+}
 
 const express = require('express');
 const { executeQuery, mapJsonToSnowflakeType } = require('./snowflake');
 const { v4: uuidv4 } = require('uuid');
-const fs = require('fs');
 
 const app = express();
 app.use(express.json({ limit: '50mb' }));
@@ -195,7 +202,8 @@ app.get('/api/filters', async (req, res) => {
     const filterNames = filters.map((f) => f.FILTER_NAME);
 
     res.json({ filters, filterNames });
-  } catch {
+  } catch (error) {
+    console.error('GET /api/filters error:', error.message);
     res.json({ filters: [], filterNames: [] });
   }
 });
@@ -261,4 +269,9 @@ app.listen(PORT, '127.0.0.1', () => {
   console.log(`[API] SNOWFLAKE_PRIVATE_KEY=${process.env.SNOWFLAKE_PRIVATE_KEY ? '(set, ' + process.env.SNOWFLAKE_PRIVATE_KEY.length + ' chars)' : '(not set)'}`);
   console.log(`[API] WORKSPACE_SOURCE_TABLE_ID=${process.env.WORKSPACE_SOURCE_TABLE_ID || '(not set)'}`);
   console.log(`[API] WORKSPACE_FILTER_TABLE_ID=${process.env.WORKSPACE_FILTER_TABLE_ID || '(not set)'}`);
+
+  // Verify Snowflake connectivity at startup so misconfiguration is caught early
+  executeQuery('SELECT 1 AS ping')
+    .then(() => console.log('[API] Snowflake connectivity test: OK'))
+    .catch((err) => console.error('[API] Snowflake connectivity test FAILED:', err.message));
 });
