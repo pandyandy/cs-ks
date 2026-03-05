@@ -5,11 +5,6 @@ snowflake.configure({
   keepAlive: false,
 });
 
-// Single persistent connection — initialized once at startup and reused.
-// On any query failure the connection is re-established and the query retried once.
-let conn = null;
-let queryQueue = Promise.resolve();
-
 function getPrivateKey() {
   const raw = process.env.SNOWFLAKE_PRIVATE_KEY;
   if (!raw) throw new Error('SNOWFLAKE_PRIVATE_KEY is not set');
@@ -25,12 +20,11 @@ function getPrivateKey() {
   return pem;
 }
 
-async function connect() {
-  if (conn) {
-    conn.destroy(() => {});
-    conn = null;
-  }
-
+// Create a fresh connection for every query. Keboola's network drops idle
+// persistent connections within ~30-60 seconds, and the Snowflake SDK does
+// not reliably recover them via reconnect. A fresh connection per query is
+// the only approach that works consistently in this environment.
+async function executeQuery(query, binds) {
   const config = {
     account: process.env.SNOWFLAKE_ACCOUNT,
     username: process.env.SNOWFLAKE_USER,
@@ -39,30 +33,13 @@ async function connect() {
     warehouse: process.env.SNOWFLAKE_WAREHOUSE,
     database: process.env.SNOWFLAKE_DATABASE,
     schema: process.env.SNOWFLAKE_SCHEMA,
-    clientSessionKeepAlive: true,
-    clientSessionKeepAliveHeartbeatFrequency: 60,
   };
 
-  console.log(`[Snowflake] Connecting as ${config.username} to ${config.account}`);
-  const c = snowflake.createConnection(config);
-  await c.connectAsync();
-  conn = c;
-  console.log('[Snowflake] Connected successfully');
-}
+  const conn = snowflake.createConnection(config);
+  await conn.connectAsync();
 
-function enqueueQuery(run) {
-  const p = queryQueue.then(run, run);
-  queryQueue = p.catch(() => {});
-  return p;
-}
-
-async function executeQuery(query, binds) {
-  return enqueueQuery(async () => {
-    if (!conn) {
-      await connect();
-    }
-
-    const runQuery = () => new Promise((resolve, reject) => {
+  try {
+    return await new Promise((resolve, reject) => {
       const opts = { sqlText: query };
       if (binds && binds.length > 0) {
         opts.binds = binds;
@@ -70,7 +47,7 @@ async function executeQuery(query, binds) {
       opts.complete = (err, _stmt, rows) => {
         if (err) {
           console.error('[Snowflake] Query error:', err.message, '| code:', err.code, '| sqlState:', err.sqlState);
-          reject(err);
+          reject(new Error(`Query failed: ${err.message}`));
           return;
         }
         resolve(rows || []);
@@ -78,17 +55,9 @@ async function executeQuery(query, binds) {
       console.log(`[Snowflake] Executing: ${query.substring(0, 80)}...`);
       conn.execute(opts);
     });
-
-    try {
-      return await runQuery();
-    } catch (err) {
-      // Session dropped or connection went stale — reconnect once and retry
-      console.warn('[Snowflake] Query failed, reconnecting and retrying:', err.message);
-      conn = null;
-      await connect();
-      return await runQuery();
-    }
-  });
+  } finally {
+    conn.destroy(() => {});
+  }
 }
 
 function mapJsonToSnowflakeType(jsonType) {
@@ -98,5 +67,4 @@ function mapJsonToSnowflakeType(jsonType) {
   throw new Error(`Unsupported JSON type: ${jsonType}`);
 }
 
-module.exports = { executeQuery, connect, mapJsonToSnowflakeType };
-
+module.exports = { executeQuery, mapJsonToSnowflakeType };
