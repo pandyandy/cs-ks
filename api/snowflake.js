@@ -6,9 +6,8 @@ snowflake.configure({
 });
 
 // Single persistent connection — initialized once at startup and reused.
-// A keepalive ping runs every 3 minutes to prevent the session from expiring.
+// On any query failure the connection is re-established and the query retried once.
 let conn = null;
-let keepAliveTimer = null;
 let queryQueue = Promise.resolve();
 
 function getPrivateKey() {
@@ -27,10 +26,6 @@ function getPrivateKey() {
 }
 
 async function connect() {
-  if (keepAliveTimer) {
-    clearInterval(keepAliveTimer);
-    keepAliveTimer = null;
-  }
   if (conn) {
     conn.destroy(() => {});
     conn = null;
@@ -51,24 +46,6 @@ async function connect() {
   await c.connectAsync();
   conn = c;
   console.log('[Snowflake] Connected successfully');
-
-  // Keepalive: ping every 3 minutes so the session doesn't go idle
-  keepAliveTimer = setInterval(() => {
-    if (!conn) return;
-    conn.execute({
-      sqlText: 'SELECT 1',
-      complete: (err) => {
-        if (err) {
-          console.warn('[Snowflake] Keepalive ping failed — will reconnect on next query:', err.message);
-          if (keepAliveTimer) clearInterval(keepAliveTimer);
-          keepAliveTimer = null;
-          conn = null;
-        } else {
-          console.log('[Snowflake] Keepalive OK');
-        }
-      },
-    });
-  }, 3 * 60 * 1000);
 }
 
 function enqueueQuery(run) {
@@ -79,12 +56,11 @@ function enqueueQuery(run) {
 
 async function executeQuery(query, binds) {
   return enqueueQuery(async () => {
-    // Reconnect if the session was dropped
     if (!conn) {
       await connect();
     }
 
-    return new Promise((resolve, reject) => {
+    const runQuery = () => new Promise((resolve, reject) => {
       const opts = { sqlText: query };
       if (binds && binds.length > 0) {
         opts.binds = binds;
@@ -92,11 +68,7 @@ async function executeQuery(query, binds) {
       opts.complete = (err, _stmt, rows) => {
         if (err) {
           console.error('[Snowflake] Query error:', err.message, '| code:', err.code, '| sqlState:', err.sqlState);
-          // Mark connection as dead so the next query reconnects
-          if (keepAliveTimer) clearInterval(keepAliveTimer);
-          keepAliveTimer = null;
-          conn = null;
-          reject(new Error(`Query failed: ${err.message}`));
+          reject(err);
           return;
         }
         resolve(rows || []);
@@ -104,6 +76,16 @@ async function executeQuery(query, binds) {
       console.log(`[Snowflake] Executing: ${query.substring(0, 80)}...`);
       conn.execute(opts);
     });
+
+    try {
+      return await runQuery();
+    } catch (err) {
+      // Session dropped or connection went stale — reconnect once and retry
+      console.warn('[Snowflake] Query failed, reconnecting and retrying:', err.message);
+      conn = null;
+      await connect();
+      return await runQuery();
+    }
   });
 }
 
@@ -115,3 +97,4 @@ function mapJsonToSnowflakeType(jsonType) {
 }
 
 module.exports = { executeQuery, connect, mapJsonToSnowflakeType };
+
