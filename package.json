@@ -6,8 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "start:api": "node api/server.js",
-    "generate-data": "node src/data/generateDummy.js"
+    "start:api": "node api/server.js"
   },
   "dependencies": {
     "ag-grid-community": "^31.0.0",
@@ -21,8 +20,6 @@
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
     "react-plotly.js": "^2.6.0",
-    "snowflake-sdk": "^1.14.0",
-    "uuid": "^9.0.0",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "skills": {
+    "Keboola Configuration": {
+      "source": "keboola/ai-kit",
+      "sourceType": "github",
+      "computedHash": "d54cd482099e8c8d0aace67988f46b20081472a12856b0f19968ba3566256cb2"
+    },
+    "backward-compatibility-reviewer": {
+      "source": "keboola/ai-kit",
+      "sourceType": "github",
+      "computedHash": "b26b37ea7f82b37ec553b6c7bf28c1b3cfaf629ed3e6b45bfd973811326bbb06"
+    },
+    "build-component": {
+      "source": "keboola/ai-kit",
+      "sourceType": "github",
+      "computedHash": "bbad8e6dc49c0d2db6e2c293f4c3f8d95b86d8d16034cef336161b726cbedd65"
+    },
+    "build-component-ui": {
+      "source": "keboola/ai-kit",
+      "sourceType": "github",
+      "computedHash": "7daaba1739b9fd79e337357183f92e9d06f7f4c5d9ac6fb4bf2f16ff2fac0851"
+    },
+    "dataapp-dev": {
+      "source": "keboola/ai-kit",
+      "sourceType": "github",
+      "computedHash": "44efc5047faec5d7b69cf686334dbae10f457c55692dcbb8f834e85efb2e7733"
+    },
+    "debug-component": {
+      "source": "keboola/ai-kit",
+      "sourceType": "github",
+      "computedHash": "4288efbe88f6d7e278553044d09ed761cada25e6b777c81c63ad3fb51f44ada9"
+    },
+    "get-started": {
+      "source": "keboola/ai-kit",
+      "sourceType": "github",
+      "computedHash": "c8953cb1236e67e034bb0c01cc8125e40a8fa112d13e7cf70010e5ed52a2f2ef"
+    },
+    "gh-process-review": {
+      "source": "keboola/ai-kit",
+      "sourceType": "github",
+      "computedHash": "db9a85e030fe56acc4d54d7153ef381c1f220ba8c8595a4db889ca5791dc5800"
+    },
+    "migrate-to-uv": {
+      "source": "keboola/ai-kit",
+      "sourceType": "github",
+      "computedHash": "dfb8d5ebc77e7db448437be876c509d2364903e2dfc19b9d803120c103c80909"
+    },
+    "review-component": {
+      "source": "keboola/ai-kit",
+      "sourceType": "github",
+      "computedHash": "e58973d5ac383cfe08a9165bba875a9b2cae39a0c15cc1b2454df62e61d3a66f"
+    },
+    "test-component": {
+      "source": "keboola/ai-kit",
+      "sourceType": "github",
+      "computedHash": "7f414efeafeb0024a1721b57ccee41af5b303e9afcd198c4ba901f48acc9312e"
+    }
+  }
+}

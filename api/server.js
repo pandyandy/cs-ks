@@ -10,8 +10,7 @@ if (fs.existsSync(envPath)) {
 }
 
 const express = require('express');
-const { executeQuery, mapJsonToSnowflakeType } = require('./snowflake');
-const { v4: uuidv4 } = require('uuid');
+const { exportTable, importTableIncremental } = require('./storageApi');
 
 const app = express();
 app.use(express.json({ limit: '50mb' }));
@@ -93,24 +92,31 @@ function buildMergedRow(changedRow, originalRow, userEmail) {
 // GET /api/data
 app.get('/api/data', async (_req, res) => {
   try {
-    const tableId = process.env.WORKSPACE_SOURCE_TABLE_ID;
+    const tableId = process.env.KBC_SOURCE_TABLE_ID;
     if (!tableId) {
-      return res.status(500).json({ error: 'WORKSPACE_SOURCE_TABLE_ID not configured' });
+      return res.status(500).json({ error: 'KBC_SOURCE_TABLE_ID not configured' });
     }
 
-    const colList = DATA_COLUMNS.map((c) => `"${c}"`).join(', ');
-    const rows = await executeQuery(`SELECT ${colList} FROM "${tableId}"`);
+    const allRows = await exportTable(tableId);
 
-    const data = rows.map((row) => {
-      const evaluation = row.EVALUATION != null ? parseInt(row.EVALUATION, 10) : null;
-      const yearEval = evaluation != null ? `${row.YEAR}-${evaluation}` : `${row.YEAR}-NA`;
-      return {
-        ...row,
-        YEAR_EVALUATION: yearEval,
-        DIRECT_MANAGER_EMAIL: (row.DIRECT_MANAGER_EMAIL || '').toLowerCase(),
-        EMAIL_ADDRESS: (row.EMAIL_ADDRESS || '').toLowerCase(),
-      };
-    });
+    const data = allRows
+      .filter((row) => DATA_COLUMNS.every((col) => col in row))
+      .map((row) => {
+        const picked = {};
+        for (const col of DATA_COLUMNS) picked[col] = row[col] ?? '';
+
+        const evaluation = picked.EVALUATION != null && picked.EVALUATION !== ''
+          ? parseInt(picked.EVALUATION, 10)
+          : null;
+        const yearEval = evaluation != null ? `${picked.YEAR}-${evaluation}` : `${picked.YEAR}-NA`;
+
+        return {
+          ...picked,
+          YEAR_EVALUATION: yearEval,
+          DIRECT_MANAGER_EMAIL: (picked.DIRECT_MANAGER_EMAIL || '').toLowerCase(),
+          EMAIL_ADDRESS: (picked.EMAIL_ADDRESS || '').toLowerCase(),
+        };
+      });
 
     data.sort((a, b) => (a.FULL_NAME || '').localeCompare(b.FULL_NAME || ''));
     res.json({ data });
@@ -129,6 +135,11 @@ app.post('/api/data/save', async (req, res) => {
       return res.status(400).json({ error: 'No changes to save' });
     }
 
+    const tableId = process.env.KBC_SOURCE_TABLE_ID;
+    if (!tableId) {
+      return res.status(500).json({ error: 'KBC_SOURCE_TABLE_ID not configured' });
+    }
+
     const originalLookup = {};
     for (const row of originalData) {
       const key = `${row.USER_ID}_${row.YEAR}_${row.EVALUATION}`;
@@ -141,33 +152,7 @@ app.post('/api/data/save', async (req, res) => {
       return buildMergedRow(changed, original, userEmail);
     });
 
-    const tableName = process.env.WORKSPACE_SOURCE_TABLE_ID;
-    const sanitizedEmail = userEmail.replace('@', '_').replace(/\./g, '_');
-    const tempTableName = `TEMP_STAGING_${sanitizedEmail}_${uuidv4().replace(/-/g, '')}`;
-
-    const schemaCols = Object.entries(expectedSchema)
-      .map(([col, dtype]) => `"${col}" ${mapJsonToSnowflakeType(dtype)}`)
-      .join(',\n');
-    await executeQuery(`CREATE OR REPLACE TRANSIENT TABLE "${tempTableName}" (\n${schemaCols}\n);`);
-
-    const schemaKeys = Object.keys(expectedSchema);
-    for (const row of mergedRows) {
-      const values = schemaKeys.map((col) => {
-        const val = row[col];
-        if (val == null) return 'NULL';
-        if (typeof val === 'number') return val;
-        return `'${String(val).replace(/'/g, "''")}'`;
-      });
-      const insertSql = `INSERT INTO "${tempTableName}" (${schemaKeys.map((c) => `"${c}"`).join(', ')}) VALUES (${values.join(', ')})`;
-      await executeQuery(insertSql);
-    }
-
-    const setClauses = COLUMNS_TO_UPDATE.map((col) => `target."${col}" = source."${col}"`).join(', ');
-    const whereClauses = PK_COLUMNS.map((col) => `target."${col}" = source."${col}"`).join(' AND ');
-    const updateSql = `UPDATE "${tableName}" AS target SET ${setClauses} FROM "${tempTableName}" AS source WHERE ${whereClauses};`;
-    await executeQuery(updateSql);
-
-    await executeQuery(`DROP TABLE IF EXISTS "${tempTableName}";`);
+    await importTableIncremental(tableId, mergedRows, PK_COLUMNS);
 
     res.json({ success: true, rowsUpdated: mergedRows.length });
   } catch (error) {
@@ -184,23 +169,21 @@ app.get('/api/filters', async (req, res) => {
       return res.status(400).json({ error: 'Email is required' });
     }
 
-    const tableId = process.env.WORKSPACE_FILTER_TABLE_ID;
+    const tableId = process.env.KBC_FILTER_TABLE_ID;
     if (!tableId) {
       return res.json({ filters: [], filterNames: [] });
     }
 
-    const rows = await executeQuery(
-      `SELECT "FILTER_NAME", "FILTER_CREATOR", "FILTERED_VALUES" FROM "${tableId}" WHERE "FILTER_CREATOR" = ?`,
-      [userEmail]
-    );
+    const allRows = await exportTable(tableId);
+    const filters = allRows
+      .filter((row) => row.FILTER_CREATOR === userEmail)
+      .map((row) => ({
+        FILTER_NAME: row.FILTER_NAME,
+        FILTER_CREATOR: row.FILTER_CREATOR,
+        FILTERED_VALUES: row.FILTERED_VALUES,
+      }));
 
-    const filters = rows.map((row) => ({
-      FILTER_NAME: row.FILTER_NAME,
-      FILTER_CREATOR: row.FILTER_CREATOR,
-      FILTERED_VALUES: row.FILTERED_VALUES,
-    }));
     const filterNames = filters.map((f) => f.FILTER_NAME);
-
     res.json({ filters, filterNames });
   } catch (error) {
     console.error('GET /api/filters error:', error.message);
@@ -217,25 +200,18 @@ app.post('/api/filters', async (req, res) => {
       return res.status(400).json({ error: 'Email and filter name are required' });
     }
 
-    const tableId = process.env.WORKSPACE_FILTER_TABLE_ID;
+    const tableId = process.env.KBC_FILTER_TABLE_ID;
     if (!tableId) {
-      return res.status(500).json({ error: 'WORKSPACE_FILTER_TABLE_ID not configured' });
+      return res.status(500).json({ error: 'KBC_FILTER_TABLE_ID not configured' });
     }
 
-    const filterModelJson = JSON.stringify(filterModel || {});
-    const mergeQuery = `
-      MERGE INTO "${tableId}" AS target
-      USING (
-        SELECT '${filterName.replace(/'/g, "''")}' AS FILTER_NAME,
-               '${userEmail.replace(/'/g, "''")}' AS FILTER_CREATOR,
-               '${filterModelJson.replace(/'/g, "''")}' AS FILTERED_VALUES
-      ) AS source
-      ON target."FILTER_NAME" = source.FILTER_NAME AND target."FILTER_CREATOR" = source.FILTER_CREATOR
-      WHEN MATCHED THEN UPDATE SET target."FILTERED_VALUES" = source.FILTERED_VALUES
-      WHEN NOT MATCHED THEN INSERT ("FILTER_NAME", "FILTER_CREATOR", "FILTERED_VALUES")
-      VALUES (source.FILTER_NAME, source.FILTER_CREATOR, source.FILTERED_VALUES)
-    `;
-    await executeQuery(mergeQuery);
+    const filterRow = {
+      FILTER_NAME: filterName,
+      FILTER_CREATOR: userEmail,
+      FILTERED_VALUES: JSON.stringify(filterModel || {}),
+    };
+
+    await importTableIncremental(tableId, [filterRow], ['FILTER_NAME', 'FILTER_CREATOR']);
 
     res.json({ success: true });
   } catch (error) {
@@ -245,18 +221,30 @@ app.post('/api/filters', async (req, res) => {
 });
 
 // Health check
-app.get('/api/health', (_req, res) => {
+app.get('/api/health', async (_req, res) => {
+  const kbcUrl = process.env.KBC_URL;
+  const kbcToken = process.env.KEBOOLA_TOKEN;
+
+  let storageStatus = 'unchecked';
+  if (kbcUrl && kbcToken) {
+    try {
+      const response = await fetch(`${kbcUrl.replace(/\/$/, '')}/v2/storage/`, {
+        headers: { 'X-StorageApi-Token': kbcToken },
+      });
+      storageStatus = response.ok ? 'ok' : `error (${response.status})`;
+    } catch (err) {
+      storageStatus = `error: ${err.message}`;
+    }
+  }
+
   res.json({
     status: 'ok',
-    snowflake: {
-      account: process.env.SNOWFLAKE_ACCOUNT ? 'set' : 'missing',
-      user: process.env.SNOWFLAKE_USER ? 'set' : 'missing',
-      privateKey: process.env.SNOWFLAKE_PRIVATE_KEY ? 'set' : 'missing',
-      warehouse: process.env.SNOWFLAKE_WAREHOUSE ? 'set' : 'missing',
-      database: process.env.SNOWFLAKE_DATABASE ? 'set' : 'missing',
-      schema: process.env.SNOWFLAKE_SCHEMA ? 'set' : 'missing',
-      sourceTable: process.env.WORKSPACE_SOURCE_TABLE_ID || 'missing',
-      filterTable: process.env.WORKSPACE_FILTER_TABLE_ID || 'missing',
+    storageApi: {
+      url: kbcUrl ? 'set' : 'missing',
+      token: kbcToken ? 'set' : 'missing',
+      connection: storageStatus,
+      sourceTable: process.env.KBC_SOURCE_TABLE_ID || 'missing',
+      filterTable: process.env.KBC_FILTER_TABLE_ID || 'missing',
     },
   });
 });
@@ -264,14 +252,8 @@ app.get('/api/health', (_req, res) => {
 const PORT = process.env.API_PORT || 3001;
 app.listen(PORT, '127.0.0.1', () => {
   console.log(`[API] Server running on http://127.0.0.1:${PORT}`);
-  console.log(`[API] SNOWFLAKE_ACCOUNT=${process.env.SNOWFLAKE_ACCOUNT || '(not set)'}`);
-  console.log(`[API] SNOWFLAKE_USER=${process.env.SNOWFLAKE_USER || '(not set)'}`);
-  console.log(`[API] SNOWFLAKE_PRIVATE_KEY=${process.env.SNOWFLAKE_PRIVATE_KEY ? '(set, ' + process.env.SNOWFLAKE_PRIVATE_KEY.length + ' chars)' : '(not set)'}`);
-  console.log(`[API] WORKSPACE_SOURCE_TABLE_ID=${process.env.WORKSPACE_SOURCE_TABLE_ID || '(not set)'}`);
-  console.log(`[API] WORKSPACE_FILTER_TABLE_ID=${process.env.WORKSPACE_FILTER_TABLE_ID || '(not set)'}`);
-
-  // Validate credentials at startup with a lightweight query
-  executeQuery('SELECT 1')
-    .then(() => console.log('[API] Snowflake connection validated'))
-    .catch((err) => console.error('[API] Snowflake validation failed:', err.message));
+  console.log(`[API] KBC_URL=${process.env.KBC_URL || '(not set)'}`);
+  console.log(`[API] KEBOOLA_TOKEN=${process.env.KEBOOLA_TOKEN ? '(set)' : '(not set)'}`);
+  console.log(`[API] KBC_SOURCE_TABLE_ID=${process.env.KBC_SOURCE_TABLE_ID || '(not set)'}`);
+  console.log(`[API] KBC_FILTER_TABLE_ID=${process.env.KBC_FILTER_TABLE_ID || '(not set)'}`);
 });
