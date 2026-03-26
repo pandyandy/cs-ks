@@ -1,10 +1,7 @@
-'use client';
-
-import { useMemo } from 'react';
-import dynamic from 'next/dynamic';
+import { useMemo, lazy, Suspense } from 'react';
 import { prepareTrendData } from '@/lib/chartUtils';
 
-const Plot = dynamic(() => import('./PlotlyWrapper'), { ssr: false });
+const Plot = lazy(() => import('./PlotlyWrapper'));
 
 export default function TrendChart({ fullData, filteredData }) {
   const trendData = useMemo(
@@ -46,12 +43,14 @@ export default function TrendChart({ fullData, filteredData }) {
   return (
     <div>
       <h4 className="text-sm font-bold mb-2">Vývoj CO a JAK v čase</h4>
-      <Plot
-        data={traces}
-        layout={layout}
-        config={{ responsive: true }}
-        style={{ width: '100%' }}
-      />
+      <Suspense fallback={<div className="text-sm text-gray-400 p-4">Načítám graf...</div>}>
+        <Plot
+          data={traces}
+          layout={layout}
+          config={{ responsive: true }}
+          style={{ width: '100%' }}
+        />
+      </Suspense>
     </div>
   );
 }

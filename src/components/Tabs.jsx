@@ -1,4 +1,3 @@
-'use client';
 
 export default function Tabs({ tabs, activeTab, onTabChange }) {
   return (

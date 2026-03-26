@@ -1,4 +1,3 @@
-'use client';
 
 const CATEGORY_COLORS = {
   Top: { bg: 'bg-emerald-50', text: 'text-emerald-700', badge: 'bg-emerald-100' },

@@ -39,6 +39,15 @@ const COLUMNS_TO_UPDATE = [
   'LOCKED_TIMESTAMP', 'HIST_DATA_MODIFIED_BY', 'HIST_DATA_MODIFIED_WHEN',
 ];
 const DEFAULT_TIMESTAMP = '1970-01-01 00:00:00.000';
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+// In-memory cache — invalidated on every successful save
+const cache = { data: null, at: 0 };
+
+function invalidateCache() {
+  cache.data = null;
+  cache.at = 0;
+}
 
 function formatTimestamp(value) {
   if (!value || value === '' || value === 'null' || value === 'undefined') {
@@ -97,6 +106,11 @@ app.get('/api/data', async (_req, res) => {
       return res.status(500).json({ error: 'KBC_SOURCE_TABLE_ID not configured' });
     }
 
+    if (cache.data && Date.now() - cache.at < CACHE_TTL) {
+      console.log('[API] Serving data from cache');
+      return res.json({ data: cache.data });
+    }
+
     const allRows = await exportTable(tableId);
 
     const data = allRows
@@ -119,6 +133,10 @@ app.get('/api/data', async (_req, res) => {
       });
 
     data.sort((a, b) => (a.FULL_NAME || '').localeCompare(b.FULL_NAME || ''));
+
+    cache.data = data;
+    cache.at = Date.now();
+
     res.json({ data });
   } catch (error) {
     console.error('GET /api/data error:', error.message);
@@ -153,6 +171,8 @@ app.post('/api/data/save', async (req, res) => {
     });
 
     await importTableIncremental(tableId, mergedRows, PK_COLUMNS);
+
+    invalidateCache();
 
     res.json({ success: true, rowsUpdated: mergedRows.length });
   } catch (error) {
@@ -245,6 +265,10 @@ app.get('/api/health', async (_req, res) => {
       connection: storageStatus,
       sourceTable: process.env.KBC_SOURCE_TABLE_ID || 'missing',
       filterTable: process.env.KBC_FILTER_TABLE_ID || 'missing',
+    },
+    cache: {
+      hasData: !!cache.data,
+      ageSeconds: cache.at ? Math.round((Date.now() - cache.at) / 1000) : null,
     },
   });
 });

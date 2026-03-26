@@ -1,4 +1,3 @@
-'use client';
 
 export default function HelpTab() {
   const confluenceUrl = 'https://cnfl.csin.cz/pages/viewpage.action?pageId=1509163068';

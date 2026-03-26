@@ -1,4 +1,3 @@
-'use client';
 
 import { createContext, useContext, useReducer, useCallback } from 'react';
 

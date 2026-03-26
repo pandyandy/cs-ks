@@ -1,5 +1,3 @@
-'use client';
-
 import { useEffect, useState, useCallback } from 'react';
 import { useApp } from '@/context/AppContext';
 import Header from '@/components/Header';
@@ -17,7 +15,7 @@ const TAB_DEFINITIONS = [
   { id: 'help', label: 'Nápověda' },
 ];
 
-export default function Home() {
+export default function App() {
   const { state, dispatch, loadData, loadFilters } = useApp();
   const [activeTab, setActiveTab] = useState('evaluation');
   const [initialized, setInitialized] = useState(false);
@@ -88,7 +86,6 @@ export default function Home() {
 
   return (
     <div className="max-w-[1440px] mx-auto px-5 py-4">
-      {/* DEV panel — always accessible via toggle button */}
       <button
         onClick={() => setDevPanelOpen(!devPanelOpen)}
         className="fixed top-4 right-4 z-50 w-9 h-9 rounded-full bg-white/90 backdrop-blur-md border border-gray-200 shadow-md flex items-center justify-center hover:bg-gray-50 transition-all"

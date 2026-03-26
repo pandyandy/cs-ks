@@ -1,6 +1,4 @@
-'use client';
-
-import { useCallback, useMemo, useRef } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
@@ -12,6 +10,7 @@ import { COLUMNS_TO_DISPLAY, EDITABLE_COLUMNS } from '@/lib/constants';
 export default function DataGrid({ data, onDataChanged }) {
   const { state, dispatch } = useApp();
   const gridRef = useRef(null);
+  const [displayedCount, setDisplayedCount] = useState(data.length);
 
   const columnDefs = useMemo(
     () => buildMainGridColumnDefs(COLUMNS_TO_DISPLAY, EDITABLE_COLUMNS, state.userRole, state.userEmail),
@@ -25,13 +24,6 @@ export default function DataGrid({ data, onDataChanged }) {
     menuTabs: ['filterMenuTab'],
   }), []);
 
-  const statusBar = useMemo(() => ({
-    statusPanels: [
-      { statusPanel: 'agTotalRowCountComponent', align: 'left' },
-      { statusPanel: 'agFilteredRowCountComponent', align: 'left' },
-    ],
-  }), []);
-
   const onCellValueChanged = useCallback((event) => {
     const newChanges = mergeChangedRows(state.changedRows, [event.data]);
     dispatch({ type: 'SET_CHANGED_ROWS', payload: newChanges });
@@ -40,29 +32,40 @@ export default function DataGrid({ data, onDataChanged }) {
 
   const onFirstDataRendered = useCallback((params) => {
     params.api.sizeColumnsToFit();
+    setDisplayedCount(params.api.getDisplayedRowCount());
+  }, []);
+
+  const onFilterChanged = useCallback((params) => {
+    setDisplayedCount(params.api.getDisplayedRowCount());
   }, []);
 
   return (
-    <div className="ag-theme-alpine" style={{ height: 380, width: '100%' }}>
-      <AgGridReact
-        ref={gridRef}
-        rowData={data}
-        columnDefs={columnDefs}
-        defaultColDef={defaultColDef}
-        statusBar={statusBar}
-        onCellValueChanged={onCellValueChanged}
-        onFirstDataRendered={onFirstDataRendered}
-        animateRows={true}
-        suppressClickEdit={false}
-        singleClickEdit={true}
-        stopEditingWhenCellsLoseFocus={true}
-        headerHeight={36}
-        rowHeight={34}
-        localeText={{
-          totalRows: 'Řádků celkem',
-          filteredRows: 'Po vyfiltrování',
-        }}
-      />
+    <div>
+      <div className="ag-theme-alpine" style={{ height: 380, width: '100%' }}>
+        <AgGridReact
+          ref={gridRef}
+          rowData={data}
+          columnDefs={columnDefs}
+          defaultColDef={defaultColDef}
+          onCellValueChanged={onCellValueChanged}
+          onFirstDataRendered={onFirstDataRendered}
+          onFilterChanged={onFilterChanged}
+          animateRows={true}
+          suppressClickEdit={false}
+          singleClickEdit={true}
+          stopEditingWhenCellsLoseFocus={true}
+          headerHeight={36}
+          rowHeight={34}
+          localeText={{
+            totalRows: 'Řádků celkem',
+            filteredRows: 'Po vyfiltrování',
+          }}
+        />
+      </div>
+      <div className="text-xs text-gray-400 mt-1 px-1">
+        Po vyfiltrování: <span className="font-medium text-gray-600">{displayedCount}</span>
+        {' · '}Celkem: <span className="font-medium text-gray-600">{data.length}</span>
+      </div>
     </div>
   );
 }

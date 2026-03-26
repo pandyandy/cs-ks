@@ -1,7 +1,3 @@
-'use client';
-
-import Image from 'next/image';
-
 export default function Header({ text = '' }) {
   return (
     <div className="rounded-xl mb-5 shadow-elevated" style={{ backgroundColor: '#266fee' }}>
@@ -14,13 +10,12 @@ export default function Header({ text = '' }) {
             <p className="text-blue-200 text-xs font-medium">{text}</p>
           )}
         </div>
-        <Image
+        <img
           src="/logo.png"
           alt="Logo"
           width={120}
           height={60}
           className="object-contain opacity-90"
-          priority
         />
       </div>
     </div>

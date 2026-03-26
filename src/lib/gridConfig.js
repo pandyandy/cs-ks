@@ -33,7 +33,7 @@ export function buildMainGridColumnDefs(columnsToDisplay, editableColumns, userR
     const def = {
       field: col,
       headerName: getColumnDisplayName(col),
-      filter: 'agSetColumnFilter',
+      filter: true,
       resizable: true,
       minWidth: 100,
     };
@@ -66,7 +66,6 @@ export function buildMainGridColumnDefs(columnsToDisplay, editableColumns, userR
       def.editable = getEditableCondition(userRole, userEmail);
       def.cellStyle = getEditableCellStyle(editableColumns);
 
-      // Cell editors for specific columns
       if (['HODNOTY', 'VYKON'].includes(col)) {
         def.cellEditor = 'agSelectCellEditor';
         def.cellEditorParams = { values: [0, 1, 2, 3, 4, 5] };
@@ -101,7 +100,7 @@ export function buildMainGridColumnDefs(columnsToDisplay, editableColumns, userR
   });
 }
 
-function getEditableCondition(userRole, userEmail) {
+function getEditableCondition(userRole, _userEmail) {
   switch (userRole) {
     case 'BP':
       return (params) => {
@@ -135,7 +134,6 @@ function getEditableCellStyle(editableColumns) {
       style.color = 'black';
     }
 
-    // Highlight HODNOTY if changed from system value
     if (params.data?.IS_LOCKED === 0 && params.colDef.field === 'HODNOTY' &&
         params.data.HODNOTY !== params.data.HODNOTY_SYSTEM) {
       style.backgroundColor = '#EDA528';
@@ -143,7 +141,6 @@ function getEditableCellStyle(editableColumns) {
       style.fontWeight = 'bold';
     }
 
-    // Highlight VYKON if changed from system value
     if (params.data?.IS_LOCKED === 0 && params.colDef.field === 'VYKON' &&
         params.data.VYKON !== params.data.VYKON_SYSTEM) {
       style.backgroundColor = '#EDA528';
@@ -163,7 +160,7 @@ export function buildFilterManagementColumnDefs(columns) {
     const def = {
       field: col,
       headerName: getColumnDisplayName(col),
-      filter: 'agSetColumnFilter',
+      filter: true,
       editable: false,
       resizable: true,
     };
@@ -201,118 +198,4 @@ export function buildFilterManagementColumnDefs(columns) {
 
     return def;
   });
-}
-
-/**
- * Build column definitions for 5x5 grid chart.
- */
-export function build5GridColumnDefs(period) {
-  const coKey = period === 'previous' ? 'CO_PREVIOUS' : 'CO';
-  const cols = [
-    {
-      field: coKey,
-      headerName: coKey,
-      pinned: 'left',
-      minWidth: 50,
-      maxWidth: 50,
-      resizable: false,
-      sortable: false,
-      cellStyle: { backgroundColor: '#f8f9fb' },
-    },
-  ];
-
-  for (let jak = 0; jak <= 5; jak++) {
-    cols.push({
-      field: String(jak),
-      headerName: String(jak),
-      flex: 1,
-      minWidth: 150,
-      sortable: false,
-      resizable: true,
-      autoHeight: true,
-      wrapText: true,
-      cellStyle: (params) => {
-        const co = Number(params.data[coKey]);
-        const colField = jak;
-
-        if (co === 1 && [1, 2, 3, 4, 5].includes(colField)) {
-          return { backgroundColor: '#2970ED', color: 'white' };
-        }
-        if ([1, 2, 3, 4, 5].includes(co) && colField === 1) {
-          return { backgroundColor: '#2970ED', color: 'white' };
-        }
-        if (co === 2 && colField === 2) {
-          return { backgroundColor: '#2970ED', color: 'white' };
-        }
-        if ([3, 4, 5].includes(co) && colField === 2) {
-          return { backgroundColor: 'lightblue' };
-        }
-        if ([2, 3, 4, 5].includes(co) && colField === 3) {
-          return { backgroundColor: 'lightblue' };
-        }
-        if ([2, 3].includes(co) && [4, 5].includes(colField)) {
-          return { backgroundColor: 'lightblue' };
-        }
-        return null;
-      },
-    });
-  }
-
-  return cols;
-}
-
-/**
- * Build column definitions for 3x3 grid chart.
- */
-export function build3GridColumnDefs(period) {
-  const primaryColor = period === 'current' ? '#2970ED' : 'grey';
-  const secondaryColor = period === 'current' ? 'lightBlue' : 'lightgrey';
-
-  const potValues = ['nízký', 'střední', 'vysoký', '0'];
-
-  const cols = [
-    {
-      field: 'CO_JAK',
-      headerName: 'CO+JAK',
-      pinned: 'left',
-      minWidth: 70,
-      maxWidth: 70,
-      resizable: false,
-      sortable: false,
-      cellStyle: { backgroundColor: '#f8f9fb' },
-    },
-  ];
-
-  for (const pot of potValues) {
-    cols.push({
-      field: pot,
-      headerName: pot,
-      flex: 1,
-      minWidth: 200,
-      sortable: false,
-      resizable: true,
-      autoHeight: true,
-      wrapText: true,
-      cellStyle: (params) => {
-        const coJak = params.data?.CO_JAK;
-        const field = params.colDef.field;
-
-        if (coJak === '1-3' && ['nízký', 'střední'].includes(field)) {
-          return { backgroundColor: primaryColor, color: 'white' };
-        }
-        if (coJak === '4-7' && ['nízký', 'střední'].includes(field)) {
-          return { backgroundColor: secondaryColor };
-        }
-        if (coJak === '8-10' && field === 'nízký') {
-          return { backgroundColor: secondaryColor };
-        }
-        if (coJak === '1-3' && field === 'vysoký') {
-          return { backgroundColor: secondaryColor };
-        }
-        return null;
-      },
-    });
-  }
-
-  return cols;
 }

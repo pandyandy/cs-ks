@@ -1,10 +1,7 @@
-'use client';
-
-import { useMemo } from 'react';
-import dynamic from 'next/dynamic';
+import { useMemo, lazy, Suspense } from 'react';
 import { prepareComparatioData } from '@/lib/chartUtils';
 
-const Plot = dynamic(() => import('./PlotlyWrapper'), { ssr: false });
+const Plot = lazy(() => import('./PlotlyWrapper'));
 
 export default function ComparatioChart({ data }) {
   const chartConfig = useMemo(() => prepareComparatioData(data), [data]);
@@ -83,11 +80,13 @@ export default function ComparatioChart({ data }) {
   };
 
   return (
-    <Plot
-      data={traces}
-      layout={layout}
-      config={{ responsive: true }}
-      style={{ width: '100%' }}
-    />
+    <Suspense fallback={<div className="text-sm text-gray-400 p-4">Načítám graf...</div>}>
+      <Plot
+        data={traces}
+        layout={layout}
+        config={{ responsive: true }}
+        style={{ width: '100%' }}
+      />
+    </Suspense>
   );
 }
