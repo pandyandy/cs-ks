@@ -93,8 +93,17 @@ async function exportTable(tableId) {
   });
 
   const completed = await waitForJob(job.id);
-  const fileUrl = completed.results?.file?.url;
-  if (!fileUrl) throw new Error('No file URL in export job results');
+  console.log(`[Storage API] Job results: ${JSON.stringify(completed.results)}`);
+
+  // The URL may be directly on results.file, or we may need to fetch file details by ID
+  let fileUrl = completed.results?.file?.url ?? completed.results?.url;
+  if (!fileUrl) {
+    const fileId = completed.results?.file?.id ?? completed.results?.id;
+    if (!fileId) throw new Error(`No file URL or ID in export job results: ${JSON.stringify(completed.results)}`);
+    const fileDetails = await apiRequest(`/files/${fileId}`);
+    fileUrl = fileDetails.url;
+    if (!fileUrl) throw new Error(`No URL in file details for file ${fileId}`);
+  }
 
   const fileResp = await fetch(fileUrl);
   if (!fileResp.ok) throw new Error(`Failed to download export: ${fileResp.status}`);

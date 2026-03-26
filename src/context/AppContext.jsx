@@ -2,7 +2,7 @@
 import { createContext, useContext, useReducer, useCallback } from 'react';
 
 const AppContext = createContext(null);
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
+const API_BASE = '';
 
 const STORAGE_KEYS = {
   EMPLOYEES: 'cs-ks-employees',
