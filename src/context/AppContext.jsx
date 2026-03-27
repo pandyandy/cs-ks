@@ -69,6 +69,15 @@ function appReducer(state, action) {
       return { ...state, selectedYear: action.payload };
     case 'SET_DIRECT_REPORTS_ONLY':
       return { ...state, directReportsOnly: action.payload };
+    case 'UPDATE_ROW': {
+      const key = `${action.payload.USER_ID}_${action.payload.YEAR}_${action.payload.EVALUATION}`;
+      return {
+        ...state,
+        data: state.data.map((row) =>
+          `${row.USER_ID}_${row.YEAR}_${row.EVALUATION}` === key ? { ...row, ...action.payload } : row
+        ),
+      };
+    }
     case 'CLEAR_CHANGES':
       return { ...state, changedRows: [], unsavedWarning: false };
     case 'RELOAD_DATA':

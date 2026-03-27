@@ -25,6 +25,7 @@ export default function DataGrid({ data, onDataChanged }) {
   }), []);
 
   const onCellValueChanged = useCallback((event) => {
+    dispatch({ type: 'UPDATE_ROW', payload: event.data });
     const newChanges = mergeChangedRows(state.changedRows, [event.data]);
     dispatch({ type: 'SET_CHANGED_ROWS', payload: newChanges });
     onDataChanged?.(newChanges);
