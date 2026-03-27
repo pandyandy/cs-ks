@@ -1,7 +1,11 @@
+const fs = require('fs');
 const { gunzipSync } = require('zlib');
 
 const KEBOOLA_URL = (process.env.KBC_URL || '').replace(/\/$/, '');
 const TOKEN = process.env.KEBOOLA_TOKEN;
+const INPUT_TABLES_DIR = process.env.KBC_DATADIR
+  ? `${process.env.KBC_DATADIR}/in/tables`
+  : '/data/in/tables';
 
 // ==================== HTTP HELPERS ====================
 
@@ -100,66 +104,59 @@ function rowsToCSV(rows) {
 // ==================== EXPORT ====================
 
 async function exportTable(tableId) {
-  const short = tableId.split('.').pop();
-  const t0 = Date.now();
-  console.log(`  [${short}] starting export…`);
+  const tableName = tableId.split('.').pop();
+  const filePath = `${INPUT_TABLES_DIR}/${tableName}.csv`;
 
-  if (!KEBOOLA_URL || !TOKEN) throw new Error('KBC_URL and KEBOOLA_TOKEN must be set');
+  // In Keboola: read from Input Mapping (pre-loaded before app starts)
+  if (fs.existsSync(filePath)) {
+    console.log(`  [${tableName}] reading from input mapping: ${filePath}`);
+    const csvText = fs.readFileSync(filePath, 'utf-8');
+    const rows = parseCSV(csvText);
+    console.log(`  [${tableName}] ${rows.length} rows`);
+    return rows;
+  }
+
+  // Local dev fallback: fetch via Storage API
+  console.log(`  [${tableName}] ${filePath} not found — falling back to Storage API export`);
+  if (!KEBOOLA_URL || !TOKEN) throw new Error(`${filePath} not found and KBC_URL/KEBOOLA_TOKEN not set`);
 
   const job = await kbcPost(`/tables/${tableId}/export-async`, { format: 'rfc' });
-  console.log(`  [${short}] job ${job.id} created, polling…`);
-
-  const result = await pollJob(job.id, short);
+  console.log(`  [${tableName}] job ${job.id} created, polling…`);
+  const result = await pollJob(job.id, tableName);
 
   const fileId = result.results?.file?.id || result.file?.id;
   if (!fileId) throw new Error(`No file ID for ${tableId}: ${JSON.stringify(result.results)}`);
 
-  // Fetch file info with federationToken to get Azure SAS credentials
-  console.log(`  [${short}] fetching file info (federationToken)…`);
   const fileInfo = await kbcGet(`/files/${fileId}?federationToken=1`);
-  const creds = fileInfo.credentials || {};
-  console.log(`  [${short}] provider=${fileInfo.provider}, credKeys=${Object.keys(creds).join(',') || 'none'}`);
+  console.log(`  [${tableName}] provider=${fileInfo.provider}, isSliced=${fileInfo.isSliced}`);
 
-  // Resolve SAS token from credentials or manifest URL
-  let sas = creds.sas || '';
-  if (!sas && creds.SASConnectionString) {
-    const match = creds.SASConnectionString.match(/SharedAccessSignature=(.+)/);
-    if (match) sas = match[1];
-  }
-  if (!sas && fileInfo.url) {
-    const u = new URL(fileInfo.url);
-    if (u.search) sas = u.search.slice(1);
-  }
-  console.log(`  [${short}] sas resolved: ${sas ? 'yes (' + sas.slice(0, 30) + '…)' : 'NO — will try without'}`);
+  let csvText;
+  if (!fileInfo.isSliced) {
+    const res = await fetchWithRetry(fileInfo.url);
+    if (!res.ok) throw new Error(`File download failed: ${res.status}`);
+    const buf = Buffer.from(await res.arrayBuffer());
+    try { csvText = gunzipSync(buf).toString('utf-8'); } catch { csvText = buf.toString('utf-8'); }
+  } else {
+    const creds = fileInfo.credentials || {};
+    const sas = creds.SASToken || creds.sas
+      || (() => { const m = (creds.SASConnectionString || '').match(/SharedAccessSignature=(.+)/); return m?.[1]; })()
+      || (() => { try { const u = new URL(fileInfo.url); return u.search ? u.search.slice(1) : ''; } catch { return ''; } })();
 
-  // Download manifest
-  console.log(`  [${short}] downloading manifest…`);
-  const manifestRes = await fetchWithRetry(fileInfo.url);
-  if (!manifestRes.ok) throw new Error(`Manifest download failed: ${manifestRes.status}`);
-  const manifestText = await manifestRes.text();
-
-  let csvText = '';
-  let entries = null;
-  try { entries = JSON.parse(manifestText).entries; } catch { /* not JSON — raw CSV */ }
-
-  if (entries && entries.length > 0) {
-    console.log(`  [${short}] downloading ${entries.length} blob(s)…`);
-    const parts = await Promise.all(entries.map(async (entry, i) => {
-      const httpsUrl = entry.url.replace(/^azure:\/\//, 'https://');
-      const blobUrl = sas ? `${httpsUrl}?${sas}` : httpsUrl;
-      const r = await fetchWithRetry(blobUrl);
-      if (!r.ok) throw new Error(`Blob ${i} failed: ${r.status} — URL: ${httpsUrl.slice(0, 100)}`);
+    const manifestRes = await fetchWithRetry(fileInfo.url);
+    if (!manifestRes.ok) throw new Error(`Manifest download failed: ${manifestRes.status}`);
+    const manifest = JSON.parse(await manifestRes.text());
+    const parts = await Promise.all((manifest.entries || []).map(async (entry, i) => {
+      const url = entry.url.replace(/^azure:\/\//, 'https://');
+      const r = await fetchWithRetry(sas ? `${url}?${sas}` : url);
+      if (!r.ok) throw new Error(`Slice ${i} failed: ${r.status}`);
       const buf = Buffer.from(await r.arrayBuffer());
       try { return gunzipSync(buf).toString('utf-8'); } catch { return buf.toString('utf-8'); }
     }));
-    csvText = parts.join('');
-  } else {
-    // Fallback: manifest is the raw CSV (non-Azure backends)
-    csvText = manifestText;
+    csvText = parts[0] + parts.slice(1).map((p) => { const nl = p.indexOf('\n'); return nl === -1 ? '' : p.slice(nl + 1); }).join('');
   }
 
   const rows = parseCSV(csvText);
-  console.log(`  [${short}] done — ${rows.length} rows (${((Date.now() - t0) / 1000).toFixed(1)}s)`);
+  console.log(`  [${tableName}] done — ${rows.length} rows`);
   return rows;
 }
 
@@ -185,6 +182,7 @@ async function importTableIncremental(tableId, rows, primaryKeys) {
       notify: '0',
       isPublic: '0',
       federationToken: '1',
+      'tags[]': 'file-import',
     }).toString(),
   });
   if (!fileRes.ok) throw new Error(`File prepare failed: ${fileRes.status} ${await fileRes.text()}`);
@@ -209,14 +207,6 @@ async function importTableIncremental(tableId, rows, primaryKeys) {
   console.log(`  [${short}] file uploaded (id=${fileId})`);
 
   // 3. Trigger async incremental import referencing the uploaded file
-  const params = {
-    dataFileId: String(fileId),
-    incremental: '1',
-  };
-  for (const pk of primaryKeys) {
-    params['primaryKey[]'] = pk; // URLSearchParams handles duplicate keys
-  }
-  // Build params properly for multiple primary keys
   const searchParams = new URLSearchParams();
   searchParams.set('dataFileId', String(fileId));
   searchParams.set('incremental', '1');
