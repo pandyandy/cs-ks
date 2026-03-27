@@ -20,7 +20,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('evaluation');
   const [initialized, setInitialized] = useState(false);
 
-  const [devEmail, setDevEmail] = useState('alena.horak@csas.cz');
+  const [devEmail, setDevEmail] = useState('admin@csas.cz');
   const [devRole, setDevRole] = useState('DEV');
   const [devPanelOpen, setDevPanelOpen] = useState(true);
 
