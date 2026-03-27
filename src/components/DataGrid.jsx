@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
@@ -7,10 +7,23 @@ import { buildMainGridColumnDefs } from '@/lib/gridConfig';
 import { mergeChangedRows } from '@/lib/dataManager';
 import { COLUMNS_TO_DISPLAY, EDITABLE_COLUMNS } from '@/lib/constants';
 
-export default function DataGrid({ data, onDataChanged }) {
+const rowKey = (row) => `${row.USER_ID}_${row.YEAR}_${row.EVALUATION}`;
+
+export default function DataGrid({ data, dataKey, onDataChanged }) {
   const { state, dispatch } = useApp();
   const gridRef = useRef(null);
+
+  // Local copy that AG Grid actually renders — only syncs from props on external changes
+  // (year/filter switch, server reload), never on local cell edits.
+  const [gridData, setGridData] = useState(() => data);
   const [displayedCount, setDisplayedCount] = useState(data.length);
+
+  useEffect(() => {
+    setGridData(data);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataKey, state.gridRefreshTimestamp]);
+
+  const getRowId = useCallback((params) => rowKey(params.data), []);
 
   const columnDefs = useMemo(
     () => buildMainGridColumnDefs(COLUMNS_TO_DISPLAY, EDITABLE_COLUMNS, state.userRole, state.userEmail),
@@ -25,6 +38,8 @@ export default function DataGrid({ data, onDataChanged }) {
   }), []);
 
   const onCellValueChanged = useCallback((event) => {
+    // Update local grid data immediately — no React round-trip through filteredData
+    setGridData((prev) => prev.map((row) => rowKey(row) === rowKey(event.data) ? event.data : row));
     dispatch({ type: 'UPDATE_ROW', payload: event.data });
     const newChanges = mergeChangedRows(state.changedRows, [event.data]);
     dispatch({ type: 'SET_CHANGED_ROWS', payload: newChanges });
@@ -45,7 +60,8 @@ export default function DataGrid({ data, onDataChanged }) {
       <div className="ag-theme-alpine" style={{ height: 380, width: '100%' }}>
         <AgGridReact
           ref={gridRef}
-          rowData={data}
+          rowData={gridData}
+          getRowId={getRowId}
           columnDefs={columnDefs}
           defaultColDef={defaultColDef}
           onCellValueChanged={onCellValueChanged}

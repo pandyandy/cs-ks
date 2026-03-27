@@ -174,7 +174,10 @@ export default function EvaluationTab() {
         <>
           {filteredData.length > 0 ? (
             <div className="mb-4">
-              <DataGrid data={filteredData} />
+              <DataGrid
+            data={filteredData}
+            dataKey={`${selectedYear}_${state.selectedFilterName}_${state.directReportsOnly}`}
+          />
             </div>
           ) : (
             <div className="flex items-center gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm mb-4">

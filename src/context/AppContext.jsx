@@ -42,6 +42,7 @@ function appReducer(state, action) {
         lastSavedData: action.payload,
         loading: false,
         error: null,
+        gridRefreshTimestamp: Date.now(),
       };
     case 'SET_FILTERED_DATA':
       return { ...state, filteredData: action.payload };
